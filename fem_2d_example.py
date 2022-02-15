@@ -206,3 +206,91 @@ def updateLameCoeff():
     nu = PoissonsRatio[None]
     LameLa[None] = E*nu / ((1+nu)*(1-2*nu))
     LameMu[None] = E / (2*(1+nu))
+
+    
+# init once and for all
+meshing()
+initialize()
+initialize_elements()
+updateLameCoeff()
+
+gui = ti.GUI('Linear FEM', (800, 800))
+while gui.running:
+
+    picking[None]=0
+
+    # key events
+    for e in gui.get_events(ti.GUI.PRESS):
+        if e.key in [ti.GUI.ESCAPE, ti.GUI.EXIT]:
+            exit()
+        elif e.key == 'r':
+            initialize()
+        elif e.key == '0':
+            YoungsModulus[None] *= 1.1
+        elif e.key == '9':
+            YoungsModulus[None] /= 1.1
+            if YoungsModulus[None] <= 0:
+                YoungsModulus[None] = 0
+        elif e.key == '8':
+            PoissonsRatio[None] = PoissonsRatio[None]*0.9+0.05 # slowly converge to 0.5
+            if PoissonsRatio[None] >= 0.499:
+                PoissonsRatio[None] = 0.499
+        elif e.key == '7':
+            PoissonsRatio[None] = PoissonsRatio[None]*1.1-0.05
+            if PoissonsRatio[None] <= 0:
+                PoissonsRatio[None] = 0
+        elif e.key == ti.GUI.SPACE:
+            paused = not paused
+        elif e.key =='d' or e.key == 'D':
+            damping_toggle[None] = not damping_toggle[None]
+        elif e.key =='p' or e.key == 'P': # step-forward
+            for i in range(substepping):
+                if using_auto_diff:
+                    total_energy[None]=0
+                    with ti.Tape(total_energy):
+                        compute_total_energy()
+                else:
+                    compute_gradient()
+                update()
+        updateLameCoeff()
+
+    if gui.is_pressed(ti.GUI.LMB):
+        curser[None] = gui.get_cursor_pos()
+        picking[None] = 1
+
+    # numerical time integration
+    if not paused:
+        for i in range(substepping):
+            if using_auto_diff:
+                total_energy[None]=0
+                with ti.Tape(total_energy):
+                    compute_total_energy()
+            else:
+                compute_gradient()
+            update()
+
+    # render
+    pos = x.to_numpy()
+    for i in range(N_edges):
+        a, b = edges[i][0], edges[i][1]
+        gui.line((pos[a][0], pos[a][1]),
+                 (pos[b][0], pos[b][1]),
+                 radius=1,
+                 color=0xFFFF00)
+    gui.line((init_x, 0.0), (init_x, 1.0), color=0xFFFFFF, radius=4)
+
+    if picking[None]:
+        gui.circle((curser[None][0], curser[None][1]), radius=curser_radius*800, color=0xFF8888)
+
+    # text
+    gui.text(
+        content=f'9/0: (-/+) Young\'s Modulus {YoungsModulus[None]:.1f}', pos=(0.6, 0.9), color=0xFFFFFF)
+    gui.text(
+        content=f'7/8: (-/+) Poisson\'s Ratio {PoissonsRatio[None]:.3f}', pos=(0.6, 0.875), color=0xFFFFFF)
+    if damping_toggle[None]:
+        gui.text(
+            content='D: Damping On', pos=(0.6, 0.85), color=0xFFFFFF)
+    else:
+        gui.text(
+            content='D: Damping Off', pos=(0.6, 0.85), color=0xFFFFFF)
+    gui.show()
